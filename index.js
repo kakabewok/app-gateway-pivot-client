@@ -11,6 +11,9 @@ const PORT = process.env.PORT || 3000;
 const EXPECTED_DOMAIN = process.env.EXPECTED_DOMAIN || 'sandbox';
 const GATEWAY_PUBLIC_KEY = process.env.GATEWAY_PUBLIC_KEY;
 
+console.log('ENV PORT value:', process.env.PORT);
+console.log('Binding to port:', PORT);
+
 // Validasi public key saat startup
 if (!GATEWAY_PUBLIC_KEY) {
     console.error('FATAL: GATEWAY_PUBLIC_KEY environment variable tidak di-set!');
@@ -38,7 +41,6 @@ function verifySignature(payload, signatureB64, publicKeyPem) {
         return verify.verify(publicKeyPem, signatureB64, 'base64');
     } catch (err) {
         console.error('[verifySignature] Error:', err.message);
-        console.error('[verifySignature] Public key preview:', publicKeyPem.substring(0, 80));
         return false;
     }
 }
@@ -87,7 +89,12 @@ app.post('/router', upload.none(), (req, res) => {
     }
 
     // --- 4. Verify signature ---
-    const payload = `${orderId}|${amount}`;
+    // Normalkan format amount agar konsisten dengan Java (selalu ada .0)
+    const amountStr = Number.isInteger(amount)
+        ? amount.toFixed(1)   // 22000 -> "22000.0"
+        : String(amount);     // 22000.5 -> "22000.5"
+
+    const payload = `${orderId}|${amountStr}`;
     console.log('Payload to verify:', payload);
 
     const isValid = verifySignature(payload, signature, GATEWAY_PUBLIC_KEY);
