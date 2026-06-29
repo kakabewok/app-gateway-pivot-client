@@ -116,7 +116,7 @@ app.use((req, res) => {
 // ================================================================
 // START
 // ================================================================
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Client app running on port ${PORT}`);
     console.log(`Expected domain: ${EXPECTED_DOMAIN}`);
     console.log(`Webhook endpoint: POST /router`);
