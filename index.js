@@ -60,7 +60,7 @@ app.post('/router', upload.none(), (req, res) => {
     } catch (e) {
         console.error('[router] Failed to parse request:', e.message);
         console.error('[router] Raw body:', req.body);
-        return res.status(200).json(false);
+        return res.status(200).json('false');
     }
 
     const parameters = rpcBody.parameters || [];
@@ -79,13 +79,13 @@ app.post('/router', upload.none(), (req, res) => {
     // --- 2. Validasi domain ---
     if (domain !== EXPECTED_DOMAIN) {
         console.warn('[router] Domain mismatch! Expected:', EXPECTED_DOMAIN, '| Got:', domain);
-        return res.status(200).json(false);
+        return res.status(200).json('false');
     }
 
     // --- 3. Validasi X-Signature ---
     if (!signature) {
         console.warn('[router] X-Signature tidak ada!');
-        return res.status(200).json(false);
+        return res.status(200).json('false');
     }
 
     // --- 4. Verify signature ---
@@ -102,14 +102,14 @@ app.post('/router', upload.none(), (req, res) => {
 
     if (!isValid) {
         console.warn('[router] Signature INVALID - request ditolak');
-        return res.status(200).json(false);
+        return res.status(200).json('false');
     }
 
     // --- 5. Proses notifikasi ---
     console.log(`[router] Order ${orderId} marked as PAID`);
     console.log('========================================\n');
 
-    return res.status(200).json(true);
+    return res.status(200).json('true');
 });
 
 // ================================================================
@@ -117,7 +117,7 @@ app.post('/router', upload.none(), (req, res) => {
 // ================================================================
 app.use((req, res) => {
     console.log('404 - Not found:', req.method, req.path);
-    return res.status(200).json(false);
+    return res.status(200).json('false');
 });
 
 // ================================================================
