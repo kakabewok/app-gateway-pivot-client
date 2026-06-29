@@ -1,11 +1,11 @@
 const express = require('express');
 const crypto = require('crypto');
+const multer = require('multer');
 const app = express();
+const upload = multer();
 
-// CONFIG
 const PORT = 3000;
 const EXPECTED_DOMAIN = 'sandbox';
-
 const GATEWAY_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2UBjF4SJI/s3mDJoSnHr
 ZufAwHXsVEQJMJlIzIsidvm0xSstXNIkfoJScAmPC0S+KF2vs/EKZjcbIttzBNpx
@@ -15,14 +15,11 @@ ABCFw72HFnXNm/cVMzfqfOrS/VaEqiVEEs5Jwqx/C3FiETRdu7wxhdiIhc+XrXA4
 mHoFlhApFYrBdOF4Vtv+ekgNvz0g5QPrCuH9pKQaY/jSnEGwPVQI7rfl5urgKBkw
 2wIDAQAB-----END PUBLIC KEY-----`;
 
-// MIDDLEWARE
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
+// ================================================================
 // HELPER: Verify RSA-SHA256 Signature
+// ================================================================
 function verifySignature(payload, signatureB64, publicKeyPem) {
     try {
-        // Handle URL-safe Base64 (- -> +, _ -> /)
         const normalized = signatureB64
             .replace(/-/g, '+')
             .replace(/_/g, '/');
@@ -37,46 +34,51 @@ function verifySignature(payload, signatureB64, publicKeyPem) {
     }
 }
 
-// ENDPOINT: Receive Webhook from Gateway
-app.post('/notify', (req, res) => {
+// ================================================================
+// ENDPOINT: /router — format RPC dari ServiceProxy
+// ================================================================
+app.post('/notify', upload.none(), (req, res) => {
     console.log('\n========================================');
-    console.log('Incoming webhook received');
+    console.log('Incoming RPC webhook');
     console.log('========================================');
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body   :', req.body);
 
-    // --- 1. Parse RPC request from form-data ---
+    // --- 1. Parse RPC body ---
     let rpcBody;
     try {
         rpcBody = JSON.parse(req.body.request);
     } catch (e) {
-        console.error('[notify] Failed to parse request body:', e.message);
-        return res.status(400).json({ success: false, message: 'Invalid request format' });
+        console.error('[router] Failed to parse request:', e.message);
+        return res.status(400).json(false);
     }
 
     const parameters = rpcBody.parameters || [];
     const orderId = parameters[0];
     const amount = parameters[1];
 
-    console.log('Service   :', rpcBody.service);
-    console.log('Method    :', rpcBody.method);
-    console.log('Order ID  :', orderId);
-    console.log('Amount    :', amount);
+    console.log('Service :', rpcBody.service);
+    console.log('Method  :', rpcBody.method);
+    console.log('Order ID:', orderId);
+    console.log('Amount  :', amount);
 
+    // --- 2. Baca headers ---
     const domain = req.headers['domain'];
-    const signature = req.headers['X-Signature'];
+    const signature = req.headers['x-signature'];
 
-    console.log('Domain    :', domain);
-    console.log('Signature :', signature ?? '(Not Found)');
+    console.log('Domain   :', domain);
+    console.log('Signature:', signature ?? '(tidak ada)');
 
-    // --- 3. Domain Validation ---
+    // --- 3. Validasi domain ---
     if (domain !== EXPECTED_DOMAIN) {
-        console.warn('[notify] Domain mismatch! Expected:', EXPECTED_DOMAIN, '| Got:', domain);
-        return res.status(200).json({ success: false, message: 'Domain mismatch' });
+        console.warn('[router] Domain mismatch! Expected:', EXPECTED_DOMAIN, '| Got:', domain);
+        return res.status(200).json(false);
     }
 
-    // --- 4. X-Signature Validation ---
+    // --- 4. Validasi X-Signature ---
     if (!signature) {
-        console.warn('[notify] X-Signature header does not exist!');
-        return res.status(200).json({ success: false, message: 'Missing X-Signature' });
+        console.warn('[router] X-Signature tidak ada!');
+        return res.status(200).json(false);
     }
 
     const payload = `${orderId}|${amount}`;
@@ -86,20 +88,29 @@ app.post('/notify', (req, res) => {
     console.log('Signature valid  :', isValid);
 
     if (!isValid) {
-        console.warn('[notify] Signature INVALID - request rejected');
-        return res.status(200).json({ success: false, message: 'Invalid signature' });
+        console.warn('[router] Signature INVALID - request ditolak');
+        return res.status(200).json(false);
     }
 
-    console.log('[notify] Signature VALID - processing notification...');
-
-    console.log(`[notify] Order ${orderId} successfully updated to PAID`);
+    // --- 5. Proses notifikasi ---
+    console.log(`[router] Order ${orderId} marked as PAID`);
     console.log('========================================\n');
 
-    return res.status(200).json({ success: true });
+    // ServiceProxy expect response boolean: true / false
+    return res.status(200).json(true);
 });
 
-// START SERVER
+// ================================================================
+// CATCH ALL — debug route tidak ketemu
+// ================================================================
+app.use((req, res) => {
+    console.log('404 - Not found:', req.method, req.path);
+    res.status(404).json(false);
+});
+
+// ================================================================
+// START
+// ================================================================
 app.listen(PORT, () => {
-    console.log(`Client app running on http://localhost:${PORT}`);
-    console.log(`Webhook endpoint: POST http://localhost:${PORT}/notify`);
+    console.log(`Client app running on baseurl:${PORT}`);
 });
