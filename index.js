@@ -74,7 +74,7 @@ app.post('/notify', upload.none(), (req, res) => {
     const orderId = parameters[0];
     const amount = parameters[1];
     const domain = req.headers['domain'];
-    const signature = req.headers['X-Signature'];
+    const signature = req.headers['x-signature'];
 
     console.log('Service  :', rpcBody.service);
     console.log('Method   :', rpcBody.method);
