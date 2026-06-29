@@ -4,31 +4,52 @@ const multer = require('multer');
 const app = express();
 const upload = multer();
 
-const PORT = 3000;
-const EXPECTED_DOMAIN = 'sandbox';
-const GATEWAY_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2UBjF4SJI/s3mDJoSnHr
-ZufAwHXsVEQJMJlIzIsidvm0xSstXNIkfoJScAmPC0S+KF2vs/EKZjcbIttzBNpx
-w7jzlZeV5p6PxAFeKmssue72YA9wY1mGW0/2YCSgUDVLucw/JbqAlJTkHfVpFAIB
-ABCFw72HFnXNm/cVMzfqfOrS/VaEqiVEEs5Jwqx/C3FiETRdu7wxhdiIhc+XrXA4
-2/snli7Wf3CB4SINORT/SlZkVnlwpS0ZuBqipNEN5Pf6DU6Kw7yEAsfygT+ZBMh/
-mHoFlhApFYrBdOF4Vtv+ekgNvz0g5QPrCuH9pKQaY/jSnEGwPVQI7rfl5urgKBkw
-2wIDAQAB-----END PUBLIC KEY-----`;
+// ================================================================
+// CONFIG
+// ================================================================
+const PORT = process.env.PORT || 3000;
+const EXPECTED_DOMAIN = process.env.EXPECTED_DOMAIN || 'sandbox';
+const GATEWAY_PUBLIC_KEY = process.env.GATEWAY_PUBLIC_KEY;
 
+// Validasi public key saat startup
+if (!GATEWAY_PUBLIC_KEY) {
+    console.error('FATAL: GATEWAY_PUBLIC_KEY environment variable tidak di-set!');
+    process.exit(1);
+}
+
+try {
+    crypto.createPublicKey(GATEWAY_PUBLIC_KEY);
+    console.log('Public key loaded successfully');
+} catch (e) {
+    console.error('FATAL: Public key tidak valid:', e.message);
+    process.exit(1);
+}
+
+// ================================================================
+// HELPER: Verify RSA-SHA256 Signature
+// ================================================================
 function verifySignature(payload, signatureB64, publicKeyPem) {
     try {
+        const keyObject = crypto.createPublicKey(publicKeyPem);
+        console.log('[verifySignature] Public key loaded, type:', keyObject.asymmetricKeyType);
+
         const verify = crypto.createVerify('SHA256');
         verify.update(payload, 'utf8');
         return verify.verify(publicKeyPem, signatureB64, 'base64');
     } catch (err) {
         console.error('[verifySignature] Error:', err.message);
+        console.error('[verifySignature] Public key preview:', publicKeyPem.substring(0, 80));
         return false;
     }
 }
 
-app.post('/notify', upload.none(), (req, res) => {
+// ================================================================
+// ENDPOINT: /router — format RPC dari ServiceProxy
+// ================================================================
+app.post('/router', upload.none(), (req, res) => {
     console.log('\n========================================');
     console.log('Incoming RPC webhook');
+    console.log('========================================');
 
     // --- 1. Parse RPC body ---
     let rpcBody;
@@ -36,6 +57,7 @@ app.post('/notify', upload.none(), (req, res) => {
         rpcBody = JSON.parse(req.body.request);
     } catch (e) {
         console.error('[router] Failed to parse request:', e.message);
+        console.error('[router] Raw body:', req.body);
         return res.status(200).json(false);
     }
 
@@ -45,6 +67,8 @@ app.post('/notify', upload.none(), (req, res) => {
     const domain = req.headers['domain'];
     const signature = req.headers['x-signature'];
 
+    console.log('Service  :', rpcBody.service);
+    console.log('Method   :', rpcBody.method);
     console.log('Order ID :', orderId);
     console.log('Amount   :', amount);
     console.log('Domain   :', domain);
@@ -74,18 +98,26 @@ app.post('/notify', upload.none(), (req, res) => {
         return res.status(200).json(false);
     }
 
-    // --- 5. Proses ---
+    // --- 5. Proses notifikasi ---
     console.log(`[router] Order ${orderId} marked as PAID`);
     console.log('========================================\n');
 
     return res.status(200).json(true);
 });
 
+// ================================================================
+// CATCH ALL
+// ================================================================
 app.use((req, res) => {
-    console.log('404:', req.method, req.path);
+    console.log('404 - Not found:', req.method, req.path);
     return res.status(200).json(false);
 });
 
+// ================================================================
+// START
+// ================================================================
 app.listen(PORT, () => {
-    console.log(`Client app running on ${PORT}`);
+    console.log(`Client app running on port ${PORT}`);
+    console.log(`Expected domain: ${EXPECTED_DOMAIN}`);
+    console.log(`Webhook endpoint: POST /router`);
 });
