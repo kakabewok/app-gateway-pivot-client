@@ -14,9 +14,9 @@ const GATEWAY_PUBLIC_KEY = process.env.GATEWAY_PUBLIC_KEY;
 console.log('ENV PORT value:', process.env.PORT);
 console.log('Binding to port:', PORT);
 
-// Validasi public key saat startup
+// Validate public key on startup
 if (!GATEWAY_PUBLIC_KEY) {
-    console.error('FATAL: GATEWAY_PUBLIC_KEY environment variable tidak di-set!');
+    console.error('FATAL: GATEWAY_PUBLIC_KEY environment variable is not set!');
     process.exit(1);
 }
 
@@ -24,8 +24,15 @@ try {
     crypto.createPublicKey(GATEWAY_PUBLIC_KEY);
     console.log('Public key loaded successfully');
 } catch (e) {
-    console.error('FATAL: Public key tidak valid:', e.message);
+    console.error('FATAL: Public key is invalid:', e.message);
     process.exit(1);
+}
+
+// ================================================================
+// HELPER: Build RPC-style response (matches ServiceProxy format)
+// ================================================================
+function rpcResponse(res, data) {
+    return res.status(200).json({ data, message: null });
 }
 
 // ================================================================
@@ -46,9 +53,9 @@ function verifySignature(payload, signatureB64, publicKeyPem) {
 }
 
 // ================================================================
-// ENDPOINT: /router — format RPC dari ServiceProxy
+// ENDPOINT: /notify — RPC format from ServiceProxy
 // ================================================================
-app.post('/router', upload.none(), (req, res) => {
+app.post('/notify', upload.none(), (req, res) => {
     console.log('\n========================================');
     console.log('Incoming RPC webhook');
     console.log('========================================');
@@ -58,41 +65,41 @@ app.post('/router', upload.none(), (req, res) => {
     try {
         rpcBody = JSON.parse(req.body.request);
     } catch (e) {
-        console.error('[router] Failed to parse request:', e.message);
-        console.error('[router] Raw body:', req.body);
-        return res.status(200).json('false');
+        console.error('[notify] Failed to parse request:', e.message);
+        console.error('[notify] Raw body:', req.body);
+        return rpcResponse(res, false);
     }
 
     const parameters = rpcBody.parameters || [];
     const orderId = parameters[0];
     const amount = parameters[1];
     const domain = req.headers['domain'];
-    const signature = req.headers['x-signature'];
+    const signature = req.headers['X-Signature'];
 
     console.log('Service  :', rpcBody.service);
     console.log('Method   :', rpcBody.method);
     console.log('Order ID :', orderId);
     console.log('Amount   :', amount);
     console.log('Domain   :', domain);
-    console.log('Signature:', signature ?? '(tidak ada)');
+    console.log('Signature:', signature ?? '(not present)');
 
-    // --- 2. Validasi domain ---
+    // --- 2. Validate domain ---
     if (domain !== EXPECTED_DOMAIN) {
-        console.warn('[router] Domain mismatch! Expected:', EXPECTED_DOMAIN, '| Got:', domain);
-        return res.status(200).json('false');
+        console.warn('[notify] Domain mismatch! Expected:', EXPECTED_DOMAIN, '| Got:', domain);
+        return rpcResponse(res, false);
     }
 
-    // --- 3. Validasi X-Signature ---
+    // --- 3. Validate X-Signature header ---
     if (!signature) {
-        console.warn('[router] X-Signature tidak ada!');
-        return res.status(200).json('false');
+        console.warn('[notify] X-Signature header is missing!');
+        return rpcResponse(res, false);
     }
 
     // --- 4. Verify signature ---
-    // Normalkan format amount agar konsisten dengan Java (selalu ada .0)
+    // Normalize amount format to always include decimal (consistent with Java Double)
     const amountStr = Number.isInteger(amount)
-        ? amount.toFixed(1)   // 22000 -> "22000.0"
-        : String(amount);     // 22000.5 -> "22000.5"
+        ? amount.toFixed(1)   // e.g. 22000 -> "22000.0"
+        : String(amount);     // e.g. 22000.5 -> "22000.5"
 
     const payload = `${orderId}|${amountStr}`;
     console.log('Payload to verify:', payload);
@@ -101,30 +108,31 @@ app.post('/router', upload.none(), (req, res) => {
     console.log('Signature valid  :', isValid);
 
     if (!isValid) {
-        console.warn('[router] Signature INVALID - request ditolak');
-        return res.status(200).json('false');
+        console.warn('[router] Signature is INVALID - request rejected');
+        return rpcResponse(res, false);
     }
 
-    // --- 5. Proses notifikasi ---
-    console.log(`[router] Order ${orderId} marked as PAID`);
+    // --- 5. Process notification ---
+    // TODO: update your order status here (e.g. Order.updateStatus(orderId, 'PAID'))
+    console.log(`[notify] Order ${orderId} successfully marked as PAID`);
     console.log('========================================\n');
 
-    return res.status(200).json('true');
+    return rpcResponse(res, true);
 });
 
 // ================================================================
-// CATCH ALL
+// CATCH ALL — handle unknown routes
 // ================================================================
 app.use((req, res) => {
-    console.log('404 - Not found:', req.method, req.path);
-    return res.status(200).json('false');
+    console.log('404 - Route not found:', req.method, req.path);
+    return rpcResponse(res, false);
 });
 
 // ================================================================
-// START
+// START SERVER
 // ================================================================
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Client app running on port ${PORT}`);
-    console.log(`Expected domain: ${EXPECTED_DOMAIN}`);
-    console.log(`Webhook endpoint: POST /router`);
+    console.log(`Expected domain  : ${EXPECTED_DOMAIN}`);
+    console.log(`Webhook endpoint : POST /notify`);
 });
